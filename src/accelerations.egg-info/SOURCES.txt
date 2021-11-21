@@ -1,0 +1,16 @@
+setup.cfg
+setup.py
+src/accelerations/__init__.py
+src/accelerations/accelerator.py
+src/accelerations/bytes_operations.py
+src/accelerations/geodistance.py
+src/accelerations/hash.py
+src/accelerations/multi_dimensional_distance.py
+src/accelerations/settings.py
+src/accelerations/tiler.py
+src/accelerations.egg-info/PKG-INFO
+src/accelerations.egg-info/SOURCES.txt
+src/accelerations.egg-info/dependency_links.txt
+src/accelerations.egg-info/requires.txt
+src/accelerations.egg-info/top_level.txt
+test/test_accelerations.py
