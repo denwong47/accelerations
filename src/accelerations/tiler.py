@@ -3,7 +3,7 @@ import math
 from typing import Generator
 
 import numpy as np
-from accelerations.settings import DEFAULT_MEMORY_LIMIT
+from accelerations.settings import DEFAULT_MEMORY_LIMIT, DEBUG
 
 from dictutil import dict_iter
 
@@ -46,8 +46,11 @@ class tiler():
         inputs:dict = None,
         outputs:tuple = None,
         memory_limit:int = DEFAULT_MEMORY_LIMIT,
+        show_progress:bool = DEBUG,
     )->None:
         self.reset_counter()
+
+        self.show_progress = show_progress
 
         self.inputs = inputs if inputs else {}
         self.outputs = list(outputs) if outputs else []
@@ -59,6 +62,7 @@ class tiler():
         )
 
         self.min_tiles = self.memory_consumption/self.memory_limit
+        self.max_tiles = np.prod([_arrInput.shape[0]/2 for _arrInput in self.get_array_inputs()])
         self.no_of_tiles = self.min_tiles
         self.tile_shape = (self.no_of_tiles,1)
     
@@ -84,32 +88,29 @@ class tiler():
         self.outputs = yield self.inputs
         yield None
 
-    def get_array_inputs(self, limit:int):
+    def get_array_inputs(self, limit:int=None):
         _inputs = []
         for _input in self.inputs.values():
             if (isinstance(_input, np.ndarray)):
                 _inputs.append(_input)
-                if (len(_inputs) >= limit):
-                    break
+                if (limit is not None):
+                    if (len(_inputs) >= limit):
+                        break
 
         return _inputs
 
 class tiler_coordinates(tiler):
     def __init__(
         self,
-        inputs:dict = None,
-        outputs:tuple = None,
-        memory_limit:int = DEFAULT_MEMORY_LIMIT,
+        **kwargs,
     )->None:
         super().__init__(
-            inputs=inputs,
-            outputs=outputs,
-            memory_limit=memory_limit,
+            **kwargs,
         )
 
         self.array_inputs = self.get_array_inputs(2)
 
-        if (outputs is None):
+        if (kwargs.get("output", None) is None):
             self.outputs = (
                 np.empty(
                     (self.array_inputs[0].shape[0],
@@ -127,17 +128,43 @@ class tiler_coordinates(tiler):
         #        size_out/(shape0*shape1))
         # which is strictly larger than what super() assumes.
         # Lets just use double the tiles or now.
-        self.min_tiles = self.min_tiles*2
 
-        # print (f"Minimum number of tiles: {self.min_tiles}")
+        if (self.show_progress): print (f"Minimum number of tiles: {self.min_tiles}")
 
-        self.calculate_tile_shape()
+        _optimised = False
+        while (not(_optimised)):
 
-        self.no_of_tiles = self.tile_shape[0] * self.tile_shape[1]
+            self.calculate_tile_shape()
 
-        # print(self.tile_shape)
+            self.no_of_tiles = self.tile_shape[0] * self.tile_shape[1]
 
-        # print (f"Proposed number of tiles: {self.no_of_tiles}")
+            if (self.show_progress): print(f"Proposed Tile shape: {self.tile_shape}")
+
+            if (self.show_progress): print (f"Proposed number of tiles: {self.no_of_tiles}")
+            if (self.show_progress): print (self.max_tiles)
+
+            _tile_memory_consumption = self.calculate_tile_memory_consumption()
+            if (self.show_progress): print (f"Proposed memory consumption per tile: {_tile_memory_consumption}")
+
+            if (not(_tile_memory_consumption <= self.memory_limit) and \
+                self.min_tiles < self.max_tiles):
+                self.min_tiles = max(
+                    self.no_of_tiles * (_tile_memory_consumption/self.memory_limit),
+                    self.min_tiles+1
+                    )
+                if (self.show_progress): print (f"Minimum number of tiles: {self.min_tiles}")
+            else:
+                _optimised = True
+                break
+
+    def calculate_tile_memory_consumption(self)->int:
+        return sum(
+            (
+                estimate_size(self.array_inputs[0])/self.tile_shape[0],
+                estimate_size(self.array_inputs[1])/self.tile_shape[1],
+                estimate_size(self.outputs[0])/self.no_of_tiles,
+            )
+        )
 
     def calculate_tile_size(self):
         self.tile_size = (
@@ -178,8 +205,8 @@ class tiler_coordinates(tiler):
 
         for _tile in range(self.no_of_tiles):
 
-            # print ("="*60)
-            # print (f"TILE No. {_tile}")
+            if (self.show_progress): print ("="*60)
+            if (self.show_progress): print (f"TILE No. {_tile}")
 
             _tile_xn = _tile // self.tile_shape[1]
             _tile_yn = _tile % self.tile_shape[1]
@@ -218,13 +245,14 @@ class tiler_coordinates(tiler):
             if (not isinstance(_tiled_outputs, tuple)):
                 _tiled_outputs = (_tiled_outputs, )
 
-            # print (sum(
-            #     (
-            #         _tiled_inputs["input1"].nbytes,
-            #         _tiled_inputs["input2"].nbytes,
-            #         _tiled_outputs[0].nbytes
-            #     )
-            # ))
+            if (self.show_progress): print (sum(
+                (
+                    _tiled_inputs["input1"].nbytes,
+                    _tiled_inputs["input2"].nbytes,
+                    _tiled_outputs[0].nbytes
+                ),
+            ),
+            self.memory_limit,)
 
             for _id, _output in enumerate(_tiled_outputs):
 
@@ -240,14 +268,10 @@ class tiler_coordinates(tiler):
 class tiler_byte_operations(tiler):
     def __init__(
         self,
-        inputs:dict = None,
-        outputs:tuple = None,
-        memory_limit:int = DEFAULT_MEMORY_LIMIT,
+        **kwargs,
     )->None:
         super().__init__(
-            inputs=inputs,
-            outputs=outputs,
-            memory_limit=memory_limit,
+            **kwargs,
         )
 
     def tiles(self):

@@ -166,6 +166,7 @@ class accelerated_process():
                     inputs=kwargs,
                     outputs=None,
                     memory_limit=memory_limit,
+                    show_progress=show_progress,
                 )
 
                 if (show_progress):

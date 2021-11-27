@@ -11,7 +11,7 @@ from accelerations.accelerator import accelerated_process, \
                                       AcceleratedProcessInvalidInput
 from accelerations.tiler import tiler_coordinates
 from accelerations.settings import DEFAULT_MEMORY_LIMIT, CUDA_DEFAULT_BLOCK_DIM
-from accelerations.settings import DEBUG
+from accelerations.settings import DEBUG, DEBUG_TILER
 
 # ========================================================================================
 
@@ -61,12 +61,12 @@ def cuda_distance_between_arrays(
     
     # The above is a shorthand for below:
     # This ignores all the complexity of trying to work out the location of the block etc.
-    tx = cuda.threadIdx.x
-    ty = cuda.threadIdx.y
-    bx = cuda.blockIdx.x
-    by = cuda.blockIdx.y
-    bw = cuda.blockDim.x
-    bh = cuda.blockDim.y
+    # tx = cuda.threadIdx.x
+    # ty = cuda.threadIdx.y
+    # bx = cuda.blockIdx.x
+    # by = cuda.blockIdx.y
+    # bw = cuda.blockDim.x
+    # bh = cuda.blockDim.y
 
     if x < input1.shape[0] and y < input2.shape[0]:
         dist = cuda_distance_between_two_points(
@@ -121,7 +121,7 @@ class multi_dimensional_distance(accelerated_process):
 
     @accelerated_process.tile_process(
         tiler_class=tiler_coordinates,
-        show_progress=DEBUG,
+        show_progress=DEBUG_TILER, #use DEBUG if you want to debug tiler
         )
     def process_cuda(
         input1:np.ndarray,

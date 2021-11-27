@@ -1,6 +1,7 @@
 import math
 
 DEBUG = True
+DEBUG_TILER = False
 
 DEFAULT_MEMORY_LIMIT = 512*(2**20)
 

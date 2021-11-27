@@ -304,7 +304,7 @@ class TestAccelerations(unittest.TestCase):
                     input1=_input_array1,
                     input2=_input_array2,
                     dtype=_dtype,
-                    memory_limit=2*(2**10),
+                    memory_limit=16*(2**10),
                     )
 
             print (f"Asserting equalness up to tolerance of {_tol:e}...")
