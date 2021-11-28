@@ -5,7 +5,8 @@ from typing import Generator
 import numpy as np
 from accelerations.settings import DEFAULT_MEMORY_LIMIT, DEBUG
 
-from dictutil import dict_iter
+def dict_iter(obj:dict):
+    yield zip(obj.keys(), obj.values())
 
 def estimate_size(obj):
     if (isinstance(obj, np.ndarray)):
@@ -295,42 +296,46 @@ class tiler_hashing(tiler):
         yield self.inputs
         self.outputs = yield
         
-if __name__ == "__main__":
 
-    _n1 = 1200
-    _n2 = 4400
-    _arrInput1 = np.arange(_n1, dtype=np.float64).reshape((_n1//4,4))
-    _arrInput2 = np.arange(_n2, dtype=np.float64).reshape((_n2//4,4))
 
-    print (f"Shape of Input 1: {_arrInput1.shape}")
-    print (f"Shape of Input 2: {_arrInput2.shape}")
 
-    # _arrOutput = np.empty((_arrInput1.shape[0], _arrInput2.shape[0]), dtype=np.uint64)
 
-    def dot(input1, input2):
-        return np.dot(input1, input2.T)
+# if __name__ == "__main__":
 
-    print ("ANSWER")
-    print (_answer := dot(_arrInput1, _arrInput2))
+#     _n1 = 1200
+#     _n2 = 4400
+#     _arrInput1 = np.arange(_n1, dtype=np.float64).reshape((_n1//4,4))
+#     _arrInput2 = np.arange(_n2, dtype=np.float64).reshape((_n2//4,4))
 
-    print()
+#     print (f"Shape of Input 1: {_arrInput1.shape}")
+#     print (f"Shape of Input 2: {_arrInput2.shape}")
 
-    _tiler = tiler_coordinates(
-        inputs={
-            "input1":_arrInput1,
-            "input2":_arrInput2,
-        },
-        memory_limit=4096,
-    )
+#     # _arrOutput = np.empty((_arrInput1.shape[0], _arrInput2.shape[0]), dtype=np.uint64)
 
-    print (f"To be processed with tile shape {_tiler.tile_shape}.")
-    _arrOutput = _tiler.outputs[0]
+#     def dot(input1, input2):
+#         return np.dot(input1, input2.T)
 
-    _tiler_gen = _tiler.tiles()
+#     print ("ANSWER")
+#     print (_answer := dot(_arrInput1, _arrInput2))
 
-    _tiled_input = next(_tiler_gen)
-    while (_tiled_input := _tiler_gen.send((dot(**_tiled_input),))) is not None:
-        pass
+#     print()
+
+#     _tiler = tiler_coordinates(
+#         inputs={
+#             "input1":_arrInput1,
+#             "input2":_arrInput2,
+#         },
+#         memory_limit=4096,
+#     )
+
+#     print (f"To be processed with tile shape {_tiler.tile_shape}.")
+#     _arrOutput = _tiler.outputs[0]
+
+#     _tiler_gen = _tiler.tiles()
+
+#     _tiled_input = next(_tiler_gen)
+#     while (_tiled_input := _tiler_gen.send((dot(**_tiled_input),))) is not None:
+#         pass
     
-    print (_arrOutput)
-    np.testing.assert_array_equal(_answer, _arrOutput)
+#     print (_arrOutput)
+#     np.testing.assert_array_equal(_answer, _arrOutput)
