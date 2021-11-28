@@ -61,49 +61,6 @@ class accelerator_type(enum.Enum):
 
     UNKNOWN = "process_cpu" # Default to single core CPU if accelerator type is not known
 
-class output_matrix_type():
-
-    def __init__(
-        self,
-        input1_x_tilable:bool=True,
-        input1_y_tilable:bool=False,
-        input2_x_tilable:bool=True,
-        input2_y_tilable:bool=False,
-    ):
-        self.input1_x_tilable = input1_x_tilable
-        self.input1_y_tilable = input1_y_tilable
-        self.input2_x_tilable = input2_x_tilable
-        self.input2_y_tilable = input2_y_tilable
-
-    def __repr__(self):
-        return f"{type(self).__name__}({','.join([ f'{varname}={getattr(self, varname)}' for varname in ['input1_x_tilable','input1_y_tilable','input2_x_tilable','input2_y_tilable']]) })"
-
-    @classmethod
-    def input1_x_by_input2_x(cls):
-        return cls(
-            input1_x_tilable = True,
-            input1_y_tilable = False,
-            input2_x_tilable = True,
-            input2_y_tilable = False,
-        )
-
-    @classmethod
-    def input1_y_by_input2_y(cls):
-        return cls(
-            input1_x_tilable = False,
-            input1_y_tilable = True,
-            input2_x_tilable = False,
-            input2_y_tilable = True,
-        )
-
-    @classmethod
-    def input1_shape(cls):
-        return cls(
-            input1_x_tilable = True,
-            input1_y_tilable = True,
-            input2_x_tilable = False,
-            input2_y_tilable = False,
-        )
 
 def cuda_available():
     try:
@@ -195,6 +152,3 @@ class accelerated_process():
             return _wrapper
         return _decorator
 
-
-if __name__=="__main__":
-    print(output_matrix_type(True, True, False, False))
