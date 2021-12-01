@@ -5,6 +5,11 @@ import numpy as np
 import numba
 from numba import cuda
 
+try:
+    import pyopencl as cl
+except ModuleNotFoundError:
+    cl = None
+
 from accelerations.accelerator import accelerated_process, \
                                       accelerator_type, \
                                       output_matrix_type, \
@@ -120,3 +125,113 @@ def cuda_geodistance_between_arrays(
         return
 
 # ========================================================================================
+
+# COPIED OVER FROM OLD GEODISTANCE MODULE - NEEDS ADAPTING
+def opencl_distance_array(coordinate_set1, coordinate_set2, ctx, queue, max_dist=None):
+    
+    width_np = np.int32(coordinate_set1.shape[0])
+
+    mf = cl.mem_flags
+    s_lng_g = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=np.ascontiguousarray(coordinate_set1[:,0]).astype(np.float32))
+    s_lat_g = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=np.ascontiguousarray(coordinate_set1[:,1]).astype(np.float32))
+    e_lng_g = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=np.ascontiguousarray(coordinate_set2[:,0]).astype(np.float32))
+    e_lat_g = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=np.ascontiguousarray(coordinate_set2[:,1]).astype(np.float32))
+    width_g = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=width_np)
+
+    # s_lat_g = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=np.repeat(0.5,10))
+    # s_lng_g = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=np.repeat(0.5,10))
+    # e_lat_g = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=np.repeat(2,10))
+    # e_lng_g = cl.Buffer(ctx, mf.READ_ONLY | mf.COPY_HOST_PTR, hostbuf=np.repeat(2,10))
+
+
+    kernel = """
+    float cl_distance_between(float s_lat, float s_lng, float e_lat, float e_lng);
+
+    float cl_distance_between(float s_lat, float s_lng, float e_lat, float e_lng){
+        float R = 6373.0F;
+
+        if (s_lat >= -90.0F && s_lat <= 90.0F && e_lat >= -90.0F && e_lat <= 90.0F)
+        {
+            float s_lat_rad = s_lat * M_PI_F / 180;
+            float s_lng_rad = s_lng * M_PI_F / 180;
+            float e_lat_rad = e_lat * M_PI_F / 180;
+            float e_lng_rad = e_lng * M_PI_F / 180;
+
+            float distance = pow(sin((e_lat_rad - s_lat_rad)/2), 2) + cos(s_lat_rad) * cos(e_lat_rad) * pow(sin((e_lng_rad - s_lng_rad)/2), 2);
+
+            return 2 * R * asin(sqrt(distance));
+        } else {
+            return -1;
+        }
+    }
+
+
+    __kernel void cl_distance_array(
+        __global const float *s_lat_g,
+        __global const float *s_lng_g, 
+        __global const float *e_lat_g,
+        __global const float *e_lng_g,
+        __global const unsigned int *width,
+        __global float *res_g)
+    {
+        size_t global_id_0 = get_global_id(0);
+        size_t global_id_1 = get_global_id(1);
+        size_t global_size_0 = get_global_size(0);
+
+        size_t gid = global_id_1 * global_size_0 + global_id_0;
+
+        res_g[gid] = cl_distance_between(s_lat_g[global_id_1], s_lng_g[global_id_1], e_lat_g[global_id_0], e_lng_g[global_id_0]);
+    }
+
+    __kernel void id_check(
+        __global const float *s_lat_g,
+        __global const float *s_lng_g, 
+        __global const float *e_lat_g,
+        __global const float *e_lng_g,
+        __global const unsigned int *width,
+        __global int *res_g)
+    {
+        size_t global_id_0 = get_global_id(0);
+        size_t global_id_1 = get_global_id(1);
+        size_t global_size_0 = get_global_size(0);
+        //size_t offset_0 = get_global_offset(0);
+        //size_t offset_1 = get_global_offset(1);
+
+        //int index_0 = global_id_0 - offset_0;
+        //int index_1 = global_id_1 - offset_1;
+        int index = global_id_1 * global_size_0 + global_id_0;
+
+        int f = global_id_0 + 100 * global_id_1;
+
+        res_g[index] = f;
+    }
+
+    """
+
+
+    prg = cl.Program(ctx, kernel).build()
+
+    res_g = cl.Buffer(ctx, mf.WRITE_ONLY, coordinate_set1.nbytes * coordinate_set2.nbytes)
+    
+    # Note that coordinate_set1 and coordinate_set2 shapes are swapped...
+    #prg.id_check(queue, (coordinate_set2.shape[0], coordinate_set1.shape[0]), None, s_lat_g, s_lng_g, e_lat_g, e_lng_g, width_g, res_g)
+    #res_np = np.zeros((coordinate_set1.shape[0]*coordinate_set2.shape[0],), dtype=np.int32)
+    
+    
+    prg.cl_distance_array(queue, (coordinate_set2.shape[0], coordinate_set1.shape[0]), None, s_lat_g, s_lng_g, e_lat_g, e_lng_g, width_g, res_g)
+    res_np = np.zeros((coordinate_set1.shape[0]*coordinate_set2.shape[0],), dtype=np.float32)
+
+    
+    cl.enqueue_copy(queue, res_np, res_g)
+
+    # Do max_dist.
+    _invalid_condition = (res_np<0)
+    
+    if (max_dist is not None and max_dist > 0):
+        _invalid_condition = (_invalid_condition) | (res_np > max_dist)
+
+    res_np = np.where(_invalid_condition, np.nan, res_np)
+
+    
+    return res_np.reshape(coordinate_set1.shape[0], coordinate_set2.shape[0])
+    

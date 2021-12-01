@@ -128,7 +128,6 @@ class tiler_coordinates(tiler):
         #        size_in2/shape1 + 
         #        size_out/(shape0*shape1))
         # which is strictly larger than what super() assumes.
-        # Lets just use double the tiles or now.
 
         if (self.show_progress): print (f"Minimum number of tiles: {self.min_tiles}")
 

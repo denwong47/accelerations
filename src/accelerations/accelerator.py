@@ -135,8 +135,8 @@ class accelerated_process():
                 _output = _tiler.outputs
                 _factory = _tiler.tiles()
 
-                _tiled_input = next(_factory)
-                while (_tiled_input := _factory.send(func(*args, **_tiled_input))) is not None:
+                _tiled_input = next(_factory) # prime the generator factory and get the first tile
+                while (_tiled_input := _factory.send(func(*args, **_tiled_input))) is not None: # send the output while getting the next tile
                     if (show_progress):
                         _pbar.set_description(f"Processing tile #{_tiler.counter}...")
                         _pbar.update(1)
