@@ -8,7 +8,6 @@ from numba import cuda
 
 from accelerations.accelerator import accelerated_process, \
                                       accelerator_type, \
-                                      output_matrix_type, \
                                       AcceleratedProcessInvalidInput
 from accelerations.tiler import tiler_byte_operations
 

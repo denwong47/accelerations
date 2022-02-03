@@ -1,12 +1,18 @@
 import sys
+import copy
 import math
 from typing import Generator
 
 import numpy as np
 from accelerations.settings import DEFAULT_MEMORY_LIMIT, DEBUG
 
+class InvalidTilesFunctionCall(IndexError):
+    def __bool__(self):
+        return False
+    __nonzero__ = __bool__
+
 def dict_iter(obj:dict):
-    yield zip(obj.keys(), obj.values())
+    return zip(obj.keys(), obj.values())
 
 def estimate_size(obj):
     if (isinstance(obj, np.ndarray)):
@@ -53,7 +59,13 @@ class tiler():
 
         self.show_progress = show_progress
 
-        self.inputs = inputs if inputs else {}
+        # Make a copy of any np.ndarrays.
+        # This has to do with the inner working of some subclasses which uses identity operators.
+        # Copying them ensures if func(input1=A, input2=A), the identity operator will still be able to tell them apart.
+        self.inputs = {
+            _key:(_value.copy() if (isinstance(_value, np.ndarray)) else _value) \
+                for _key, _value in zip(inputs, inputs.values())
+        } if inputs else {}
         self.outputs = list(outputs) if outputs else []
         self.memory_limit = memory_limit
 
@@ -94,6 +106,7 @@ class tiler():
         for _input in self.inputs.values():
             if (isinstance(_input, np.ndarray)):
                 _inputs.append(_input)
+
                 if (limit is not None):
                     if (len(_inputs) >= limit):
                         break
@@ -110,6 +123,8 @@ class tiler_coordinates(tiler):
         )
 
         self.array_inputs = self.get_array_inputs(2)
+        if (not self.array_inputs):
+            raise InvalidTilesFunctionCall("No input arrays found by tiler. Please note that all parameters need to be called by keywords: i.e. func(input1=some_array) as opposed to func(some_array).")
 
         if (kwargs.get("output", None) is None):
             self.outputs = (
@@ -201,8 +216,6 @@ class tiler_coordinates(tiler):
         
 
     def tiles(self)->Generator:
-        _no_of_array_inputs = 2
-
         for _tile in range(self.no_of_tiles):
 
             if (self.show_progress): print ("="*60)
@@ -234,10 +247,13 @@ class tiler_coordinates(tiler):
             
             # Replace the array inputs
             for _key, _input in dict_iter(_tiled_inputs):
+                # This will fail to work if self.array_inputs[0] is identical to self.array_inputs[1] - i.e. func(input1 = A, input2 = A).
+                # Therefore in tiler.__init__() it searches for all np.ndarray among the arguments and copy() them.
                 if (_input is self.array_inputs[0]):
                     _tiled_inputs[_key] = self.array_inputs[0][_tile_xrange[0]:_tile_xrange[1],]
                 elif (_input is self.array_inputs[1]):
                     _tiled_inputs[_key] = self.array_inputs[1][_tile_yrange[0]:_tile_yrange[1],]
+
 
             # Push inputs out and wait for tiler.send(_tiled_outputs)
             _tiled_outputs = (yield _tiled_inputs)

@@ -7,7 +7,6 @@ from numba import cuda
 
 from accelerations.accelerator import accelerated_process, \
                                       accelerator_type, \
-                                      output_matrix_type, \
                                       AcceleratedProcessInvalidInput
 from accelerations.tiler import tiler_coordinates
 from accelerations.settings import DEFAULT_MEMORY_LIMIT, CUDA_DEFAULT_BLOCK_DIM
@@ -118,17 +117,18 @@ class multi_dimensional_distance(accelerated_process):
     
     # For Parallel, we just need to @numba.njit it
     process_cpu_parallel = numba.njit(process_cpu, parallel=True)
+    process_cpu = numba.njit(process_cpu)
 
     @accelerated_process.tile_process(
         tiler_class=tiler_coordinates,
         show_progress=DEBUG_TILER, #use DEBUG if you want to debug tiler
         )
     def process_cuda(
-        input1:np.ndarray,
-        input2:np.ndarray,
+        input1:np.ndarray,  # Do not rename - it has to be called input\d
+        input2:np.ndarray,  # Do not rename - it has to be called input\d
         dtype:type=np.double,
         block_dim:tuple=CUDA_DEFAULT_BLOCK_DIM,
-        memory_limit:int=DEFAULT_MEMORY_LIMIT,
+        memory_limit:int=DEFAULT_MEMORY_LIMIT, # decorator will use this via kwargs["memory_limit"] - do not delete
         show_progress:bool=False,
         **kwargs,
     ) -> np.ndarray:
