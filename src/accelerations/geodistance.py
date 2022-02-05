@@ -25,6 +25,8 @@ ELLIPSE_WGS84_F = 1/298.257223563
 
 VINCENTY_MAX_ITERATIONS = 1000
 
+HAVERSINE_RADIUS = 6373.0
+
 EPS = 2**-52
 # ========================================================================================
 
@@ -39,7 +41,7 @@ def geodistance_sphr_between_two_latlngs(
     # Copied from https://towardsdatascience.com/better-parallelization-with-numba-3a41ca69452e
     
     # approximate radius of earth in km
-    R = 6373.0
+    R = HAVERSINE_RADIUS
     
     # Discard calculation if latitude doesn't make any sense
     if (-90 <= s_lat <= 90 and -90 <= e_lat <= 90):
@@ -448,100 +450,55 @@ class geodistance(accelerated_process):
 
         _ondevice_output.copy_to_host(output)
 
-        print (output.shape)
         return output
 
     process_opencl = process_cpu_parallel
     
 
-if (__name__=="__main__"):
-    # _tests = [
-    #     {
-    #         "s_lat":0,
-    #         "s_lng":0,
-    #         "e_lat":0,
-    #         "e_lng":90,
-    #     },
-    #     {
-    #         "s_lat":51.50737491590355,
-    #         "s_lng":-0.12703183497203677,
-    #         "e_lat":50.95131148321214,
-    #         "e_lng":1.8593262909456834,
-    #     },
-    #     {
-    #         "s_lat":22.29421093707705,
-    #         "s_lng":114.16912196400331,
-    #         "e_lat":0,
-    #         "e_lng":0,
-    #     },
-    #     {
-    #         "s_lat":22.29421093707705,
-    #         "s_lng":114.16912196400331,
-    #         "e_lat":40.68925065660414,
-    #         "e_lng":-74.04450653589767,
-    #     },
-    #     {
-    #         "s_lat":22.29421093707705,  # Hong Kong TST
-    #         "s_lng":114.16912196400331-360,
-    #         "e_lat":40.68925065660414,  # NYC Statue of Liberty
-    #         "e_lng":-74.04450653589767,
-    #     },
-    #     {
-    #         "s_lat":0,                  # Test IDL wrap
-    #         "s_lng":-179.9999,
-    #         "e_lat":0,
-    #         "e_lng":179.9999,
-    #     },
-    #     {
-    #         "s_lat":89,                 # Test 
-    #         "s_lng":0,
-    #         "e_lat":-89,
-    #         "e_lng":0,
-    #     },
-    # ]
+# if (__name__=="__main__"):
+    # # Generate random arrays
+    # _counts = (997, 127)
+    # _rng = np.random.default_rng()
+    # _coors = [np.array(
+    #     [ (_x, _y) for _x,_y in zip(_rng.uniform(-90,90,size=_count), _rng.uniform(-180,180,size=_count)) ],
+    #     dtype=np.float64
+    # ) for _count in _counts]
 
-    # _results = map(
-    #     lambda dt: njit_geodistance_ellip_between_two_latlngs(**dt),
-    #     _tests
-    # )
+    # np.set_printoptions(precision=3, suppress=True, linewidth=200)
 
-    # for _input, _output in zip(_tests, _results):
-    #     print (f"{str(_input):180s} = {_output:10,.2f}")
-
-    _counts = (100000, 1000)
-    _rng = np.random.default_rng()
-    _coors = [np.array(
-        [ (_x, _y) for _x,_y in zip(_rng.uniform(-90,90,size=_count), _rng.uniform(-180,180,size=_count)) ],
-        dtype=np.float64
-    ) for _count in _counts]
-
-    np.set_printoptions(precision=3, suppress=True, linewidth=200)
-
-    from execute_timer import execute_timer
-    
-    with execute_timer(echo=True) as _timer:
-        _cuda = geodistance.process_cuda(
-            input1=_coors[0],
-            input2=_coors[1],
-            max_dist=-1,
-            precise=False,
-            show_progress=True
-        )
-
-    with execute_timer(echo=True) as _timer:
-        _parallel = geodistance.process_cpu_parallel(
-            input1=_coors[0],
-            input2=_coors[1],
-            max_dist=-1,
-            precise=False
-        )
+    # from execute_timer import execute_timer
     
     # with execute_timer(echo=True) as _timer:
-    #     _single = geodistance.process_cpu(
-    #         _coors,
-    #         _coors,
-    #         -1,
+    #     _cuda = geodistance.process_cuda(
+    #         input1=_coors[0],
+    #         input2=_coors[1],
+    #         max_dist=-1,
+    #         precise=False,
+    #         show_progress=True
+    #     )
+
+    # with execute_timer(echo=True) as _timer:
+    #     _haversine = geodistance.process_cpu_parallel(
+    #         input1=_coors[0],
+    #         input2=_coors[1],
+    #         max_dist=-1,
     #         precise=True
     #     )
+
+    # with execute_timer(echo=True) as _timer:
+    #     _vincenty = geodistance.process_cpu_parallel(
+    #         input1=_coors[0],
+    #         input2=_coors[1],
+    #         max_dist=-1,
+    #         precise=False
+    #     )
+    
+    # # with execute_timer(echo=True) as _timer:
+    # #     _single = geodistance.process_cpu(
+    # #         _coors,
+    # #         _coors,
+    # #         -1,
+    # #         precise=True
+    # #     )
         
-    print (np.abs(_cuda-_parallel)/_parallel*100)
+    # # print (np.abs(_cuda-_parallel)/_parallel*100)

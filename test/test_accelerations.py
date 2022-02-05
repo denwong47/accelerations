@@ -1,16 +1,28 @@
+from ast import Import
 import os
 import unittest
 
+import logging
 import pickle
 
 import inspect
 import numpy as np
 from accelerations.accelerator import accelerator_type
 from accelerations.multi_dimensional_distance import multi_dimensional_distance, distance_between_two_points
+from accelerations.geodistance import njit_geodistance_ellip_between_two_latlngs, njit_geodistance_sphr_between_two_latlngs, geodistance
 from accelerations.bytes_operations import bytes_XOR, bytes_operations, bytes_arrays_xor, bytes_to_np, np_to_bytes, pad_array_to_length, cuda_bytes_arrays_xor
+
+try:
+    import numba
+    from numba import cuda
+except (ImportError, ModuleNotFoundError) as e:
+    numba = None
+    cuda = None
 
 from file_io import file
 from execute_timer import execute_timer
+
+logging.basicConfig(filename="test.log", level=logging.DEBUG)
 
 class TestCasePickleCorrupted(RuntimeError):
     def __bool__(self):
@@ -32,7 +44,7 @@ class TestAccelerations(unittest.TestCase):
             _testcase_01_file = file(_testcase_01_path+".pickle", is_dir=False, script_dir=True)
 
             if (not _testcase_01_file.isreadable()):
-                print (f"Test case 01 for multi_dimensional_distance does not exist yet, generating at {_testcase_01_file.abspath()}")
+                logging.info (f"Test case 01 for multi_dimensional_distance does not exist yet, generating at {_testcase_01_file.abspath()}")
 
                 _dimensions = 4
 
@@ -68,14 +80,14 @@ class TestAccelerations(unittest.TestCase):
                     if (isinstance(_testcase_01_data[_element], np.ndarray)):
                         np.savetxt(os.path.join(_testcase_01_file.parent().abspath(), f"{_testcase_01_path}.{_element}.csv"), _testcase_01_data[_element], delimiter=",")
 
-                print(_testcase_01_file.write(pickle.dumps(_testcase_01_data)),)
-                print (f"Test case 01 for multi_dimensional_distance saved.")
+                logging.debug (_testcase_01_file.write(pickle.dumps(_testcase_01_data)),)
+                logging.info (f"Test case 01 for multi_dimensional_distance saved.")
 
                 del _input_array1
                 del _input_array2
                 del _output_array
             else:
-                print (f"Test case 01 for multi_dimensional_distance exists at {_testcase_01_file.abspath()}.")
+                logging.debug (f"Test case 01 for multi_dimensional_distance exists at {_testcase_01_file.abspath()}.")
 
         if (hasattr(cls, "test_bytes_arrays_xor") or \
             hasattr(cls, "test_bytes_operations_xor")):
@@ -123,15 +135,14 @@ class TestAccelerations(unittest.TestCase):
                     }
                 )
 
-                print(_testcase_01_file.write(pickle.dumps(_tests)),)
-                print (f"Test case 01 for bytes_operations_xor saved.")
+                logging.debug (_testcase_01_file.write(pickle.dumps(_tests)),)
+                logging.info (f"Test case 01 for bytes_operations_xor saved.")
 
                 del _input_array1
                 del _input_array2
                 del _output_array
             else:
-                print (f"Test case 01 for bytes_operations_xor exists at {_testcase_01_file.abspath()}.")
-
+                logging.debug (f"Test case 01 for bytes_operations_xor exists at {_testcase_01_file.abspath()}.")
 
     @classmethod
     def tearDownClass(cls) -> None:
@@ -150,46 +161,47 @@ class TestAccelerations(unittest.TestCase):
         ):
 
         for _test in tests:
-            if (issubclass(_test["answer"], Exception) if (isinstance(_test["answer"], type)) else False):
-                with self.assertRaises(Exception) as context:
-                    func(
-                        **_test["args"]
+            with self.subTest(input=_test["args"]):
+                if (issubclass(_test["answer"], Exception) if (isinstance(_test["answer"], type)) else False):
+                    with self.assertRaises(Exception) as context:
+                        func(
+                            **_test["args"]
+                        )
+
+                    self.assertTrue(isinstance(context.exception, _test["answer"]))
+                elif (isinstance(_test["answer"], type)):
+                    self.assertTrue(isinstance(func(**_test["args"]), _test["answer"]))
+                elif (isinstance(_test["answer"], np.ndarray)):
+                    if (_test["answer"].dtype in (
+                        np.float_,
+                        np.float16,
+                        np.float32,
+                        np.float64,
+                        np.float128,
+                        np.longfloat,
+                        np.half,
+                        np.single,
+                        np.double,
+                        np.longdouble,
+                    )):
+                        _assertion = np.testing.assert_allclose
+                    else:
+                        _assertion = np.testing.assert_array_equal
+
+                    _assertion(
+                        func(
+                            **_test["args"]
+                        ),
+                        _test["answer"],
                     )
 
-                self.assertTrue(isinstance(context.exception, _test["answer"]))
-            elif (isinstance(_test["answer"], type)):
-                self.assertTrue(isinstance(func(**_test["args"]), _test["answer"]))
-            elif (isinstance(_test["answer"], np.ndarray)):
-                if (_test["answer"].dtype in (
-                    np.float_,
-                    np.float16,
-                    np.float32,
-                    np.float64,
-                    np.float128,
-                    np.longfloat,
-                    np.half,
-                    np.single,
-                    np.double,
-                    np.longdouble,
-                )):
-                    _assertion = np.testing.assert_allclose
                 else:
-                    _assertion = np.testing.assert_array_equal
-
-                _assertion(
-                    func(
-                        **_test["args"]
-                    ),
-                    _test["answer"],
-                )
-
-            else:
-                self.assertEqual(
-                    func(
-                        **_test["args"]
-                    ),
-                    _test["answer"],
-                )
+                    self.assertEqual(
+                        func(
+                            **_test["args"]
+                        ),
+                        _test["answer"],
+                    )
 
     def test_distance_between_two_points(self) -> None:
         _tests = [
@@ -255,8 +267,6 @@ class TestAccelerations(unittest.TestCase):
         )
 
     def test_multi_dimensional_distance(self) -> None:
-
-        print ("")
         
         cls=type(self)
         _testcase_01_path = cls.get_testcase_pickle_name("multi_dimensional_distance", testcase_id=1)
@@ -270,7 +280,7 @@ class TestAccelerations(unittest.TestCase):
             _output_array = _testcase_01_json["output_array"]
 
         except (pickle.UnpicklingError, KeyError) as e:
-            print (f"Test case 01 found corrupted, this will be deleted. Rerun this test to create a new one.")
+            logging.error (f"Test case 01 found corrupted, this will be deleted. Rerun this test to create a new one.")
             _testcase_01_file.delete()
 
             raise TestCasePickleCorrupted(f"Test case 01 {_testcase_01_file.abspath()} found corrupted.")
@@ -281,23 +291,22 @@ class TestAccelerations(unittest.TestCase):
 
         _dtype = np.double
 
-        print (f"Array 1 of shape {_input_array1.shape} uses {_array_size1:,d} bytes of memory.")
-        print (f"Array 2 of shape {_input_array2.shape} uses {_array_size2:,d} bytes of memory.")
-        print (f"Output Array of shape {_output_array.shape} uses {_output_size:,d} bytes of memory.")
-        print (f"Total memory consumption: {sum((_array_size1, _array_size2, _output_size)):,d} bytes.")
+        logging.info (f"Array 1 of shape {_input_array1.shape} uses {_array_size1:,d} bytes of memory.")
+        logging.info (f"Array 2 of shape {_input_array2.shape} uses {_array_size2:,d} bytes of memory.")
+        logging.info (f"Output Array of shape {_output_array.shape} uses {_output_size:,d} bytes of memory.")
+        logging.info (f"Total memory consumption: {sum((_array_size1, _array_size2, _output_size)):,d} bytes.")
 
         _tol = 1e-07
 
         for _device_type in accelerator_type:
             _process = multi_dimensional_distance.process(type=_device_type)
             
-            print (f"Calculating using {_device_type.name}...\n")
+            logging.debug (f"Calculating using {_device_type.name}...\n")
 
-            print (f"Loaded process with parameters:")
+            logging.debug (f"Loaded process with parameters:")
             _parameters = inspect.signature(_process).parameters
             for _parameter in _parameters:
-                print (f"    {_parameter:30s}: {_parameters[_parameter].annotation}")
-            print ("\n")
+                logging.debug (f"    {_parameter:30s}: {_parameters[_parameter].annotation}")
 
             with execute_timer(echo=True):
                 _test_output = _process(
@@ -307,9 +316,9 @@ class TestAccelerations(unittest.TestCase):
                     memory_limit=16*(2**10),
                     )
 
-            print (f"Asserting equalness up to tolerance of {_tol:e}...")
+            logging.debug (f"Asserting equalness up to tolerance of {_tol:e}...")
             np.testing.assert_allclose(_test_output, _output_array, rtol=_tol)
-            print ("***\n")
+            logging.debug ("***\n")
 
     def test_pad_array_to_length(self) -> None:
         _tests =[
@@ -373,7 +382,6 @@ class TestAccelerations(unittest.TestCase):
         )
 
     def setUp_bytes_xor(self) -> None:
-        print ("")
         
         cls=type(self)
         _testcase_01_path = cls.get_testcase_pickle_name("bytes_operations_xor", testcase_id=1)
@@ -385,7 +393,7 @@ class TestAccelerations(unittest.TestCase):
             self.testcase_bytes_xor = _testcase_01_json
 
         except (pickle.UnpicklingError, KeyError) as e:
-            print (f"Test case 01 found corrupted, this will be deleted. Rerun this test to create a new one.")
+            logging.error (f"Test case 01 found corrupted, this will be deleted. Rerun this test to create a new one.")
             _testcase_01_file.delete()
 
             raise TestCasePickleCorrupted(f"Test case 01 {_testcase_01_file.abspath()} found corrupted.")
@@ -408,13 +416,12 @@ class TestAccelerations(unittest.TestCase):
         for _device_type in accelerator_type:
             _process = bytes_XOR.process(type=_device_type)
 
-            print (f"Calculating using {_device_type.name}...\n")
+            logging.debug (f"Calculating using {_device_type.name}...\n")
 
-            print (f"Loaded process with parameters:")
+            logging.debug (f"Loaded process with parameters:")
             _parameters = inspect.signature(_process).parameters
             for _parameter in _parameters:
-                print (f"    {_parameter:30s}: {_parameters[_parameter].annotation}")
-            print ("\n")
+                logging.debug (f"    {_parameter:30s}: {_parameters[_parameter].annotation}")
             
             with execute_timer(echo=True):
                 self.conduct_tests(
@@ -422,7 +429,7 @@ class TestAccelerations(unittest.TestCase):
                     _tests
                 )
 
-            print ("***\n")
+            logging.debug ("***\n")
 
     def test_bytes_operations_rol(self) -> None:
         pass
@@ -435,6 +442,206 @@ class TestAccelerations(unittest.TestCase):
 
     def test_bytes_operations_shr(self) -> None:
         pass
+
+    def test_geodistance_sphr_between_two_latlngs(self) -> None:
+        _tests = [
+            {
+                "args": {
+                    "s_lat": 0,
+                    "s_lng": 0,
+                    "e_lat": 0,
+                    "e_lng": 90
+                },
+                "answer": 10010.684990663874
+            },
+            {
+                "args": {
+                    "s_lat": 51.50737491590355,
+                    "s_lng": -0.12703183497203677,
+                    "e_lat": 50.95131148321214,
+                    "e_lng": 1.8593262909456834
+                },
+                "answer": 151.54418168316775
+            },
+            {
+                "args": {
+                    "s_lat": 22.29421093707705,
+                    "s_lng": 114.16912196400331,
+                    "e_lat": 0,
+                    "e_lng": 0
+                },
+                "answer": 12486.767591102758
+            },
+            {
+                "args": {
+                    "s_lat": 22.29421093707705,
+                    "s_lng": 114.16912196400331,
+                    "e_lat": 40.68925065660414,
+                    "e_lng": -74.04450653589767
+                },
+                "answer": 12964.353453784852
+            },
+            {
+                "args": {
+                    "s_lat": 22.29421093707705,
+                    "s_lng": -245.8308780359967,
+                    "e_lat": 40.68925065660414,
+                    "e_lng": -74.04450653589767
+                },
+                "answer": 12964.353453784852
+            },
+            {
+                "args": {
+                    "s_lat": 0,
+                    "s_lng": -179.9999,
+                    "e_lat": 0,
+                    "e_lng": 179.9999
+                },
+                "answer": 0.02224596664487551
+            },
+            {
+                "args": {
+                    "s_lat": 89,
+                    "s_lng": 0,
+                    "e_lat": -89,
+                    "e_lng": 0
+                },
+                "answer": 19798.910314868575
+            }
+        ]
+
+        self.conduct_tests(
+            njit_geodistance_sphr_between_two_latlngs,
+            _tests,
+        )
+
+    def test_geodistance_ellip_between_two_latlngs(self) -> None:
+        _tests = [
+            {
+                "args": {
+                    "s_lat": 0,
+                    "s_lng": 0,
+                    "e_lat": 0,
+                    "e_lng": 90
+                },
+                "answer": 10018.754171390094
+            },
+            {
+                "args": {
+                    "s_lat": 51.50737491590355,
+                    "s_lng": -0.12703183497203677,
+                    "e_lat": 50.95131148321214,
+                    "e_lng": 1.8593262909456834
+                },
+                "answer": 151.90920889884373
+            },
+            {
+                "args": {
+                    "s_lat": 22.29421093707705,
+                    "s_lng": 114.16912196400331,
+                    "e_lat": 0,
+                    "e_lng": 0
+                },
+                "answer": 12495.209263526498
+            },
+            {
+                "args": {
+                    "s_lat": 22.29421093707705,
+                    "s_lng": 114.16912196400331,
+                    "e_lat": 40.68925065660414,
+                    "e_lng": -74.04450653589767
+                },
+                "answer": 12980.172222211004
+            },
+            {
+                "args": {
+                    "s_lat": 22.29421093707705,
+                    "s_lng": -245.8308780359967,
+                    "e_lat": 40.68925065660414,
+                    "e_lng": -74.04450653589767
+                },
+                "answer": 12980.172222211004
+            },
+            {
+                "args": {
+                    "s_lat": 0,
+                    "s_lng": -179.9999,
+                    "e_lat": 0,
+                    "e_lng": 179.9999
+                },
+                "answer": 0.022263897320092842
+            },
+            {
+                "args": {
+                    "s_lat": 89,
+                    "s_lng": 0,
+                    "e_lat": -89,
+                    "e_lng": 0
+                },
+                "answer": 19780.54372879477
+            }
+        ]
+
+        self.conduct_tests(
+            njit_geodistance_ellip_between_two_latlngs,
+            _tests,
+        )
+
+    def test_geodistance(self)->None:
+        # Load data from files
+        _testcase_01_filenames = {
+            "input_array1":"testcase_test_geodistance_01.input_array1.txt",
+            "input_array2":"testcase_test_geodistance_01.input_array2.txt",
+            "output_haversine":"testcase_test_geodistance_01_haversine.output_array.txt",
+            "output_vincenty":"testcase_test_geodistance_01_vincenty.output_array.txt",
+        }
+
+        def _loadtxt(path, cols):
+            with open(path, "r") as _f:
+                return np.loadtxt(_f, delimiter=",").reshape((-1, cols))
+        
+        _testcase_01_data = {
+            _key:_loadtxt(_testcase_01_filenames[_key],2) for _key in ("input_array1", "input_array2")
+        }
+
+        for _key in ("output_haversine", "output_vincenty"):
+            _testcase_01_data[_key] = _loadtxt(_testcase_01_filenames[_key], _testcase_01_data["input_array2"].shape[0])
+
+        # Put together a list of tests
+        _tests = [
+            {
+                "args":{
+                    "input1":_testcase_01_data["input_array1"],
+                    "input2":_testcase_01_data["input_array2"],
+                    "max_dist":-1,
+                    "precise":False,
+                },
+                "answer":_testcase_01_data["output_haversine"],
+            },
+            {
+                "args":{
+                    "input1":_testcase_01_data["input_array1"],
+                    "input2":_testcase_01_data["input_array2"],
+                    "max_dist":-1,
+                    "precise":True,
+                },
+                "answer":_testcase_01_data["output_vincenty"],
+            },
+        ]
+
+        with self.subTest(method="process_cpu_parallel"):
+            self.conduct_tests(
+                geodistance.process_cpu_parallel,
+                _tests,
+            )
+
+        if (numba and cuda):
+            with self.subTest(method="process_cuda"):
+                self.conduct_tests(
+                    geodistance.process_cuda,
+                    _tests,
+                )
+        
 
 if __name__ == "__main__":
     unittest.main()
