@@ -18,14 +18,15 @@ from accelerations.tiler import tiler_coordinates
 from accelerations.settings import DEFAULT_MEMORY_LIMIT, CUDA_DEFAULT_BLOCK_DIM
 from accelerations.settings import DEBUG, DEBUG_TILER
 
+
+HAVERSINE_RADIUS = 6373.0
+
 # Extracted from https://www.movable-type.co.uk/scripts/geodesy/docs/module-latlon-ellipsoidal-LatLonEllipsoidal.html
 ELLIPSE_WGS84_A = 6378.137          # km
 ELLIPSE_WGS84_B = 6356.752314245    # km
 ELLIPSE_WGS84_F = 1/298.257223563
 
 VINCENTY_MAX_ITERATIONS = 1000
-
-HAVERSINE_RADIUS = 6373.0
 
 EPS = 2**-52
 # ========================================================================================

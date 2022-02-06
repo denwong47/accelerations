@@ -1,5 +1,6 @@
 import enum
 import math
+from typing import Any, Iterable, Union
 
 from numba.np.ufunc import parallel
 import numpy as np
@@ -64,6 +65,78 @@ def pad_array_to_length(
     _rng = np.random.default_rng(array)
     return _rng.integers(0, 255, length, dtype=array.dtype)    
 
+array_binary_repr = lambda a: np.vectorize(np.binary_repr)(a, width=a.dtype.alignment*8)
+
+def cast_int_sequentially(
+    input1:np.ndarray,
+    dtype:Union[
+        np.dtype,
+        str,
+    ],
+):
+    """
+    Cast integer arrays into a dtype of different length, sequentially.
+
+    1D array only.
+
+    For example if you have an np.arange(8, dtype=np.uint8):
+    uint8 ['00000000' '00000001' '00000010' '00000011' '00000100' '00000101' '00000110' '00000111']
+
+    You can cast them into np.uint16:
+    uint16 ['00000000 00000001'  '00000010 00000011'   '00000100 00000101'   '00000110 00000111'  ]
+    or np.uint32:
+    uint32 ['00000000 00000001 00000010 00000011'      '00000100 00000101 00000110 00000111']
+
+    Note that this is different from np.frombuffer or np.view - those would have reversed the order of each byte when grouping:
+    e.g.
+    uint32 ['00000011 00000010 00000001 00000000'      '00000111 00000110 00000101 00000100']
+
+    The principle use of this function is for hashing - when casting 4 bytes of data into a word of 32 bits.
+
+
+    There are more elegant ways to write this function - but we need to maintain CUDA compatibility,
+    so np.apply() etc cannot be used.
+    """
+    
+    _input_data_size    =   input1.dtype.alignment*8
+    _output_data_size   =   np.dtype(dtype).alignment * 8
+
+    _cast_ratio         =   _output_data_size/_input_data_size
+
+    output1 = np.empty(
+        (math.ceil(input1.shape[0]/_cast_ratio),),
+        dtype=dtype,
+    )
+
+
+    for _output_pos in numba.prange(output1.shape[0]):
+        _input_pos  =   math.floor(_output_pos * _cast_ratio)
+
+        if (_cast_ratio > 1):
+            """
+            Casting from shorter to longer dtypes
+            """
+            _cast_ratio = int(_cast_ratio)
+
+            output1[_output_pos]    =   np.sum(
+                input1[_input_pos:_input_pos+_cast_ratio].astype(dtype=dtype) << (np.arange(_cast_ratio-1, -1, -1, dtype=np.uint8)*8),
+            )
+        elif (_cast_ratio < 1):
+            """
+            Casting from longer to shorter dtypes
+            """
+            _input_offset           =   int(1/_cast_ratio - _output_pos % (1/_cast_ratio) - 1)
+            output1[_output_pos]    =   input1[_input_pos] >> (_input_offset * 8)       # we should not need to remove the overflowing values if the output dtype is correctly set
+        else:
+            """
+            What are we casting????
+            """
+            return input1.astype(dtype=dtype)
+
+    return output1
+
+njit_cast_int_sequentially = numba.njit(parallel=True)(cast_int_sequentially)
+cuda_cast_int_sequentially = cuda.jit(device=True)(cast_int_sequentially)
 
 # ========================================================================================
 
@@ -163,6 +236,9 @@ def _bytes_arrays_shift_with_specified_length(
 
     return bytes_return
 
+
+njit_bytes_arrays_shift_with_specified_length = numba.njit(parallel=True)(_bytes_arrays_shift_with_specified_length)
+
 # ========================================================================================
 
 def bytes_arrays_shift(
@@ -171,9 +247,7 @@ def bytes_arrays_shift(
         rotate:bool=False,
     )->np.ndarray:
 
-    _bytes_arrays_shift = _bytes_arrays_shift_with_specified_length
-
-    return _bytes_arrays_shift(
+    return _bytes_arrays_shift_with_specified_length(
         bytes1=bytes1,
         amount=amount,
         rotate=rotate,
@@ -188,9 +262,7 @@ def njit_bytes_arrays_shift(
         rotate:bool=False,
     )->np.ndarray:
 
-    _bytes_arrays_shift = numba.njit(parallel=True)(_bytes_arrays_shift_with_specified_length)
-
-    return _bytes_arrays_shift(
+    return njit_bytes_arrays_shift_with_specified_length(
         bytes1=bytes1,
         amount=amount,
         rotate=rotate,

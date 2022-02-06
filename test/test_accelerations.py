@@ -15,6 +15,9 @@ from accelerations.bytes_operations import bytes_XOR, bytes_operations, bytes_ar
 try:
     import numba
     from numba import cuda
+
+    if (not cuda.detect()):
+        cuda = None
 except (ImportError, ModuleNotFoundError) as e:
     numba = None
     cuda = None
