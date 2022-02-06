@@ -67,12 +67,14 @@ def pad_array_to_length(
 
 array_binary_repr = lambda a: np.vectorize(np.binary_repr)(a, width=a.dtype.alignment*8)
 
-def cast_int_sequentially(
+def cast_int_sequentially_with_specified_length(
     input1:np.ndarray,
     dtype:Union[
         np.dtype,
         str,
     ],
+    input_length:int,
+    output_length:int,
 ):
     """
     Cast integer arrays into a dtype of different length, sequentially.
@@ -98,8 +100,8 @@ def cast_int_sequentially(
     so np.apply() etc cannot be used.
     """
     
-    _input_data_size    =   input1.dtype.alignment*8
-    _output_data_size   =   np.dtype(dtype).alignment * 8
+    _input_data_size    =   input_length
+    _output_data_size   =   output_length
 
     _cast_ratio         =   _output_data_size/_input_data_size
 
@@ -135,8 +137,42 @@ def cast_int_sequentially(
 
     return output1
 
-njit_cast_int_sequentially = numba.njit(parallel=True)(cast_int_sequentially)
-cuda_cast_int_sequentially = cuda.jit(device=True)(cast_int_sequentially)
+njit_cast_int_sequentially_with_specified_length = numba.njit(parallel=True)(cast_int_sequentially_with_specified_length)
+cuda_cast_int_sequentially_with_specified_length = cuda.jit(device=True)(cast_int_sequentially_with_specified_length)
+
+def cast_int_sequentially(
+    input1:np.ndarray,
+    dtype:Union[
+        np.dtype,
+        str,
+    ],
+):
+    _input_data_size    =   input1.dtype.alignment* 8
+    _output_data_size   =   np.dtype(dtype).alignment * 8
+
+    return cast_int_sequentially_with_specified_length(
+        input1=input1,
+        dtype=dtype,
+        input_length=_input_data_size,
+        output_length=_output_data_size,
+    )
+
+def njit_cast_int_sequentially(
+    input1:np.ndarray,
+    dtype:Union[
+        np.dtype,
+        str,
+    ],
+):
+    _input_data_size    =   input1.dtype.alignment* 8
+    _output_data_size   =   np.dtype(dtype).alignment * 8
+
+    return njit_cast_int_sequentially_with_specified_length(
+        input1=input1,
+        dtype=dtype,
+        input_length=_input_data_size,
+        output_length=_output_data_size,
+    )
 
 # ========================================================================================
 
