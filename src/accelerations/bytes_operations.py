@@ -92,10 +92,6 @@ def cast_int_sequentially(
     uint32 ['00000011 00000010 00000001 00000000'      '00000111 00000110 00000101 00000100']
 
     The principle use of this function is for hashing - when casting 4 bytes of data into a word of 32 bits.
-
-
-    There are more elegant ways to write this function - but we need to maintain CUDA compatibility,
-    so np.apply() etc cannot be used.
     """
     
     _input_data_size    =   input1.dtype.alignment*8
@@ -135,8 +131,6 @@ def cast_int_sequentially(
 
     return output1
 
-njit_cast_int_sequentially = numba.njit(parallel=True)(cast_int_sequentially)
-cuda_cast_int_sequentially = cuda.jit(device=True)(cast_int_sequentially)
 
 # ========================================================================================
 
