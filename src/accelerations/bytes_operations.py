@@ -121,7 +121,7 @@ def cast_int_sequentially_with_specified_length(
             _cast_ratio = int(_cast_ratio)
 
             output1[_output_pos]    =   np.sum(
-                input1[_input_pos:_input_pos+_cast_ratio].astype(dtype=dtype) << (np.arange(_cast_ratio-1, -1, -1, dtype=np.uint8)*8),
+                input1[_input_pos:_input_pos+_cast_ratio] << (np.arange(_cast_ratio-1, -1, -1, dtype=np.uint8)*8),
             )
         elif (_cast_ratio < 1):
             """
@@ -151,7 +151,7 @@ def cast_int_sequentially(
     _output_data_size   =   np.dtype(dtype).alignment * 8
 
     return cast_int_sequentially_with_specified_length(
-        input1=input1,
+        input1=input1.astype(dtype=dtype),
         dtype=dtype,
         input_length=_input_data_size,
         output_length=_output_data_size,
@@ -168,7 +168,7 @@ def njit_cast_int_sequentially(
     _output_data_size   =   np.dtype(dtype).alignment * 8
 
     return njit_cast_int_sequentially_with_specified_length(
-        input1=input1,
+        input1=input1.astype(dtype=dtype),
         dtype=dtype,
         input_length=_input_data_size,
         output_length=_output_data_size,
