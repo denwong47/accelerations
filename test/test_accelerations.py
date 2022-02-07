@@ -10,7 +10,7 @@ import numpy as np
 from accelerations.accelerator import accelerator_type
 from accelerations.multi_dimensional_distance import multi_dimensional_distance, distance_between_two_points
 from accelerations.geodistance import njit_geodistance_ellip_between_two_latlngs, njit_geodistance_sphr_between_two_latlngs, geodistance
-from accelerations.bytes_operations import bytes_XOR, bytes_operations, bytes_arrays_xor, bytes_to_np, np_to_bytes, pad_array_to_length, cuda_bytes_arrays_xor
+from accelerations.bytes_operations import bytes_XOR, bytes_operations, bytes_arrays_xor, bytes_to_np, np_to_bytes, pad_array_with_random, cuda_bytes_arrays_xor
 
 try:
     import numba
@@ -323,7 +323,7 @@ class TestAccelerations(unittest.TestCase):
             np.testing.assert_allclose(_test_output, _output_array, rtol=_tol)
             logging.debug ("***\n")
 
-    def test_pad_array_to_length(self) -> None:
+    def test_pad_array_with_random(self) -> None:
         _tests =[
             {
                 # To test that the seed is still producing the same thing
@@ -380,7 +380,7 @@ class TestAccelerations(unittest.TestCase):
         ]
 
         self.conduct_tests(
-            pad_array_to_length,
+            pad_array_with_random,
             _tests,
         )
 

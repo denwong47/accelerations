@@ -2,13 +2,21 @@ import math
 import pickle
 import struct
 from typing import Any, Dict, Iterable, Union
+import warnings
 
 import numba
 from numba import cuda
 import numpy as np
 
 from accelerations.tiler import tiler_hashing
-from accelerations.bytes_operations import  bytes_operations
+from accelerations.bytes_operations import  bytes_operations, \
+                                            bytes_XOR, \
+                                            bytes_ROR, \
+                                            bytes_SHR, \
+                                            array_binary_repr, \
+                                            bytes_to_np, \
+                                            pad_array_with_zeros, \
+                                            cast_int_sequentially
 
 """
 SHA-256 hashing using parallelisations
@@ -38,13 +46,15 @@ def pad_data_to_512_blocks(
         Any
     ],
 ):
-    _return = convert_data_to_bytes(data)
+    _return = data_to_bytes(data)
     _data_len = len(data)
 
+    _pad_len = 56-(_data_len)%64
+    _pad_len += 64 * (_pad_len <= 0)
+
+
     _return += (128).to_bytes(
-        math.ceil(
-            (_data_len+1)/64
-        )*64-_data_len-8,
+        _pad_len,
         "little",
     )
 
@@ -54,7 +64,7 @@ def pad_data_to_512_blocks(
 
     return _return
     
-def convert_data_to_bytes(
+def data_to_bytes(
     data:Union[
         bytes,
         Any
@@ -78,6 +88,7 @@ def convert_data_to_bytes(
     
     return _type_switch[None](data)
 
+# TODO How to parallelise this?
 def sha256_chunk_loop(
     chunk:np.ndarray,    # must be 64 bytes long
     initial_hashes:np.ndarray = root2_constants[np.arange(8)],
@@ -86,31 +97,190 @@ def sha256_chunk_loop(
     """
     Chunk Loop of a SHA-2 algorithm
     """
+    
+    final_hashes = initial_hashes
 
-    chunk = np.append(chunk, np.zeros((48*4, )))
-    chunk = chunk.reshape((-1, 4))
+    _message_schedule = sha256_message_schedule(chunk)
 
-    print (chunk.shape)
+
+    # Create Chunk
+    for _i in range(16, 64):
+        _s0 =       bytes_ROR.process_cpu(
+                        _message_schedule[_i-15],
+                        amount = 7,
+                    ) ^ \
+                    bytes_ROR.process_cpu(
+                        _message_schedule[_i-15],
+                        amount = 18,
+                    ) ^ \
+                    bytes_SHR.process_cpu(
+                        _message_schedule[_i-15],
+                        amount = 3,
+                    )
+        
+        _s1 =       bytes_ROR.process_cpu(
+                        _message_schedule[_i-2],
+                        amount = 17,
+                    ) ^ \
+                    bytes_ROR.process_cpu(
+                        _message_schedule[_i-2],
+                        amount = 19,
+                    ) ^ \
+                    bytes_SHR.process_cpu(
+                        _message_schedule[_i-2],
+                        amount = 10,
+                    )
+            
+        _message_schedule[_i]   =   (_message_schedule[_i-16] + \
+                                    _s0 + \
+                                    _message_schedule[_i-7] + \
+                                    _s1)
+
+    _chunk_cache = final_hashes.copy()
+
+    # Compression
+    for _i in range(64):
+        # print ("E  ", np.binary_repr(_hash[4], width=32))
+
+        _s1 =       bytes_ROR.process_cpu(
+                        _chunk_cache[4],
+                        amount = 6,
+                    ) ^ \
+                    bytes_ROR.process_cpu(
+                        _chunk_cache[4],
+                        amount = 11,
+                    ) ^ \
+                    bytes_ROR.process_cpu(
+                        _chunk_cache[4],
+                        amount = 25,
+                    )
+
+        # print ("S1 ", np.binary_repr(_s1, width=32))
+
+        _ch =       (_chunk_cache[4] & _chunk_cache[5]) ^ \
+                    ((~_chunk_cache[4]) & _chunk_cache[6])
+
+        # print ("CH ", np.binary_repr(_ch, width=32))
+
+        # print ("H  ", np.binary_repr(_hash[7], width=32))
+        # print ("k/i", np.binary_repr(round_constants[_i], width=32))
+        # print ("w/i", np.binary_repr(_message_schedule[_i], width=32))
+        
+        _temp1 =    _chunk_cache[7] + \
+                    _s1 + \
+                    _ch + \
+                    round_constants[_i] + \
+                    _message_schedule[_i]
+
+        # print ("T1 ", np.binary_repr(_temp1, width=32))
+
+        _s0 =       bytes_ROR.process_cpu(
+                        _chunk_cache[0],
+                        amount = 2,
+                    ) ^ \
+                    bytes_ROR.process_cpu(
+                        _chunk_cache[0],
+                        amount = 13,
+                    ) ^ \
+                    bytes_ROR.process_cpu(
+                        _chunk_cache[0],
+                        amount = 22,
+                    )
+
+        # print ("S0 ", np.binary_repr(_s0, width=32))
+
+        _maj =      (_chunk_cache[0] & _chunk_cache[1]) ^ \
+                    (_chunk_cache[0] & _chunk_cache[2]) ^ \
+                    (_chunk_cache[1] & _chunk_cache[2])
+
+        # print ("MAJ", np.binary_repr(_maj, width=32))
+
+        _temp2 =    _s0 + _maj
+
+        # print ("T2 ", np.binary_repr(_temp2, width=32))
+
+        _chunk_cache[7] =  _chunk_cache[6]
+        _chunk_cache[6] =  _chunk_cache[5]
+        _chunk_cache[5] =  _chunk_cache[4]
+        _chunk_cache[4] =  _chunk_cache[3] + _temp1
+        _chunk_cache[3] =  _chunk_cache[2]
+        _chunk_cache[2] =  _chunk_cache[1]
+        _chunk_cache[1] =  _chunk_cache[0]
+        _chunk_cache[0] =  _temp1 + _temp2
+
+        # End of Compression
+
+    final_hashes += _chunk_cache
+
+    return final_hashes
+
+def sha256_message_schedule(
+    chunk:np.ndarray,
+):
+    """
+    Prepare message schedule.
+
+    Each input data chunks consists of 64 x uint8 = 512 bits.
+    Chunk processing requires 64 x uint32 = 2048 bits.
+    
+    We need to pad input data chunks with zeros to get the full 2048 bits.
+    """
+
+    output = cast_int_sequentially(chunk, dtype=np.uint32)
+    output = pad_array_with_zeros(output, length=64)
+
+    return output
+
 
 def sha256(
-    dataset:Iterable[Union[bytes, Any]],
+    data:Union[bytes, Any],
     initial_hashes:np.ndarray = root2_constants[np.arange(8)],
     round_constants:np.ndarray = root3_constants[np.arange(64)],
 ):
     """
     Generate a SHA-256 hashing
     """
-    _lengths = tuple([ len(data) for data in dataset ])
+    _bytes = bytes_to_np(
+                pad_data_to_512_blocks(
+                    data_to_bytes(data)
+                )
+             ).reshape((-1, 64))
 
-    for _set_id in numba.prange(len(dataset)):
-        data = dataset[_set_id]
-        data_512_blocks = pad_data_to_512_blocks(data)
-        
-        
+    _hashes     = initial_hashes.copy()
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", category=RuntimeWarning)
+        for _chunk_id in range(_bytes.shape[0]):
+            _hashes = sha256_chunk_loop(
+                chunk = _bytes[_chunk_id],
+                initial_hashes = _hashes,
+                round_constants = round_constants,
+            )
 
+    return sum( [ int(_hash) << ((7-_pos)*32) \
+            for _pos, _hash in enumerate(_hashes) ]
+    )
+        
 
 if __name__=="__main__":
-    _padded = sha256(["hello world",])
+    # initial_hashes = np.random.choice(
+    #     root2_constants,
+    #     size=8,
+    #     replace=False)
+    # round_constants = np.random.choice(
+    #     root3_constants,
+    #     size=64,
+    #     replace=False)
+
+    _text = "hello world"*1000
+    _hash = sha256(
+        _text,
+        # initial_hashes  =   initial_hashes,
+        # round_constants =   round_constants,
+    )
+
+    print (hex(_hash))
+    import hashlib
+    print(hashlib.sha256(_text.encode("utf-8")).hexdigest())
 
     # print (" ".join(
     #                 (
