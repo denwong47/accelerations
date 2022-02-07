@@ -23,6 +23,10 @@ class ubyteArrayRequired(ValueError):
     __nonzero__=__bool__
 
 def bytes_to_np(data:bytes) -> np.ndarray:
+    """
+    Convert bytes to numpy arrays
+    """
+
     if (isinstance(data, np.ndarray)):
         return data
     elif (isinstance(data, bytes)):
@@ -31,6 +35,10 @@ def bytes_to_np(data:bytes) -> np.ndarray:
         return bytes_to_np(repr(data).encode("utf-8"))
 
 def np_to_bytes(ndarray:np.ndarray) -> bytes:
+    """
+    Convert numpy arrays into bytes
+    """
+
     if (isinstance(ndarray, bytes)):
         return ndarray
     elif (isinstance(ndarray, np.ndarray)):
@@ -39,6 +47,12 @@ def np_to_bytes(ndarray:np.ndarray) -> bytes:
         raise ubyteArrayRequired(f"np.ndarray of dtype uint8 expected, {type(ndarray)} found.")
 
 def bits_unpacked(data:bytes):
+    """
+    Convert bytes into bits
+    
+    dtype will still be np.uint8.
+    """
+
     if (not(isinstance(data, np.ndarray))):
         data = bytes_to_np(data)
 
@@ -46,26 +60,53 @@ def bits_unpacked(data:bytes):
 
 def bits_packed(
     bits_array:np.ndarray,
-    kind:type=np.ndarray
+    kind:type=np.ndarray, # TODO: allow other types?
     ) -> np.ndarray:
+    """
+    Turn bits into bytes or np.ndarray(dtype=np.uint8)
+    """
     
     _return = np.packbits(bits_array.astype(dtype=np.uint8))
 
-    if (_return is np.ndarray):
+    if (kind is np.ndarray):
         return _return
-    elif (_return is bytes):
+    elif (kind is bytes):
         return np_to_bytes(_return)
 
 
-def pad_array_to_length(
+def pad_array_with_random(
     array:np.ndarray,
     length:int,
 ) -> np.ndarray:
+    """
+    Pad array with random integers AFTER the data up to length.
+    """
 
     _rng = np.random.default_rng(array)
-    return _rng.integers(0, 255, length, dtype=array.dtype)    
+    return _rng.integers(0, 255, length, dtype=array.dtype)
+
+def pad_array_with_zeros(
+    array:np.ndarray,
+    length:int,
+) -> np.ndarray:
+    """
+    Pad zeros AFTER the data up to length.
+    """
+    _output = np.zeros(
+        (length, ),
+        dtype=array.dtype,
+    )
+
+    _output[:array.shape[0]] = array
+    return _output
+
+njit_pad_array_with_zeros = numba.njit()(pad_array_with_zeros)
+
+# ========================================================================================
 
 array_binary_repr = lambda a: np.vectorize(np.binary_repr)(a, width=a.dtype.alignment*8)
+
+# ========================================================================================
 
 def cast_int_sequentially(
     input1:np.ndarray,
@@ -138,12 +179,18 @@ def bytes_arrays_xor(
         bytes1:np.ndarray,
         bytes2:np.ndarray,
     )->np.ndarray:
-    _repeats = math.ceil(bytes1.shape[0]/bytes2.shape[0])
-    return np.bitwise_xor(
-        bytes1,
-        #np.tile(bytes2, math.ceil(bytes1.shape[0]/bytes2.shape[0]))[:bytes1.shape[0]],
-        bytes2.repeat(_repeats).reshape((-1,_repeats)).T.reshape(-1)[:bytes1.shape[0]]
-    )
+    
+    if (isinstance(bytes1, np.ndarray) or \
+        isinstance(bytes2, np.ndarray)):
+
+        _repeats = math.ceil(bytes1.shape[0]/bytes2.shape[0])
+        return np.bitwise_xor(
+            bytes1,
+            #np.tile(bytes2, math.ceil(bytes1.shape[0]/bytes2.shape[0]))[:bytes1.shape[0]],
+            bytes2.repeat(_repeats).reshape((-1,_repeats)).T.reshape(-1)[:bytes1.shape[0]]
+        )
+    else:
+        return bytes1 ^ bytes2
 # ========================================================================================
 
 @numba.njit(parallel=True)
@@ -194,6 +241,12 @@ def _bytes_arrays_shift_with_specified_length(
         rotate:bool=False,
         length:int=None, # njit does not support alignment - this needs to be set everytime
     )->np.ndarray:
+
+    if (not isinstance(bytes1, np.ndarray)):
+        bytes1  = np.array([bytes1, ])
+        _is_array = False
+    else:
+        _is_array = True
     
     bytes_return = np.empty_like(bytes1)
 
@@ -228,7 +281,10 @@ def _bytes_arrays_shift_with_specified_length(
         # _rotate = bytes_return[_pos]
         # print (f"{_pos:8}{' '*22}{bin(_origin):30}{bin(_shift):30}{bin(_mask):30}{bin(_rotate):30}")
 
-    return bytes_return
+    if (_is_array):
+        return bytes_return
+    else:
+        return bytes_return[0]
 
 
 njit_bytes_arrays_shift_with_specified_length = numba.njit(parallel=True)(_bytes_arrays_shift_with_specified_length)

@@ -73,7 +73,6 @@ def geodistance_ellip_between_two_latlngs(
     )->np.float64:
     # Vincenty solutions of geodescis on the ellipsoid
     # Adapted from https://www.movable-type.co.uk/scripts/latlong-vincenty.html
-    # https://github.com/mrJean1/PyGeodesy
 
     # Geodesics on Ellipsoid calculation - accurate but iterative
 
