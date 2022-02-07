@@ -8,6 +8,12 @@ import numba
 from numba import cuda
 import numpy as np
 
+try:
+    from tqdm import tqdm
+except (ImportError, ModuleNotFoundError):
+    tqdm = None
+
+from accelerations.settings import DEBUG
 from accelerations.tiler import tiler_hashing
 from accelerations.bytes_operations import  bytes_operations, \
                                             bytes_XOR, \
@@ -249,7 +255,13 @@ def sha256(
     _hashes     = initial_hashes.copy()
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", category=RuntimeWarning)
-        for _chunk_id in range(_bytes.shape[0]):
+
+        # We can't numba.prange() this -
+        # chunk(n) relies on the hashes of chunk(n-1)!
+        _iter = range(_bytes.shape[0])
+        if (DEBUG and tqdm): _iter = tqdm(_iter)
+
+        for _chunk_id in _iter:
             _hashes = sha256_chunk_loop(
                 chunk = _bytes[_chunk_id],
                 initial_hashes = _hashes,
@@ -271,20 +283,26 @@ if __name__=="__main__":
     #     size=64,
     #     replace=False)
 
-    _text = "hello world"*1000
-    _hash = sha256(
-        _text,
-        # initial_hashes  =   initial_hashes,
-        # round_constants =   round_constants,
-    )
-
-    print (hex(_hash))
+    import logging
     import hashlib
-    print(hashlib.sha256(_text.encode("utf-8")).hexdigest())
 
-    # print (" ".join(
-    #                 (
-    #                     f"{_byte:08b}" for _byte in _padded
-    #                 )
-    #                 )
-    # )
+    logging.basicConfig(level=logging.INFO)
+
+    _text = "hello world"*1000
+    _hash_test = hex(
+        sha256(
+            _text,
+            # initial_hashes  =   initial_hashes,
+            # round_constants =   round_constants,
+        )
+    )[2:]
+    _hash_answer = hashlib.sha256(
+        _text.encode('utf-8')
+    ).hexdigest()
+
+    logging.info (f"{'Custom Method':20s}{_hash_test}")
+    logging.info (f"{'hashlib':20s}{_hash_answer}")
+
+    
+    assert _hash_test == _hash_answer
+    
